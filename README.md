@@ -15,7 +15,7 @@ git-active-branches [--months=N] [--details]
 
 **Options:**
 - `--months=N` : Show branches with commits in the last N months (default: 6)
-- `--details`  : Show detailed commit history for each branch (last 10 commits)
+- `--details`  : Show detailed commit history for each branch (last 10 commits with date, SHA, author, and subject)
 
 **Examples:**
 ```bash
@@ -61,17 +61,34 @@ git clone https://github.com/stulluk/my-git-helpers.git
 cd my-git-helpers
 ```
 
-2. Add scripts to your PATH:
-```bash
-# Option 1: Add to your PATH in ~/.bashrc or ~/.zshrc
-export PATH="$PATH:$(pwd)"
+2. Install scripts (choose one method):
 
-# Option 2: Create symlinks in a directory already in your PATH
+**Option 1: Copy to /usr/bin (system-wide, requires sudo):**
+```bash
+sudo cp git-active-branches git-find-branch-from-commit /usr/bin/
+sudo chmod +x /usr/bin/git-active-branches /usr/bin/git-find-branch-from-commit
+```
+
+**Option 2: Add to your PATH:**
+```bash
+# Add to your PATH in ~/.bashrc or ~/.zshrc
+export PATH="$PATH:$(pwd)"
+```
+
+**Option 3: Create symlinks in a directory already in your PATH:**
+```bash
 ln -s $(pwd)/git-active-branches ~/bin/
 ln -s $(pwd)/git-find-branch-from-commit ~/bin/
 ```
 
-3. Make scripts executable (if not already):
+3. (Optional) Enable bash completion:
+```bash
+# Add to your ~/.bashrc for persistent completion
+source /usr/bin/git-active-branches 2>/dev/null
+source /usr/bin/git-find-branch-from-commit 2>/dev/null
+```
+
+Note: Scripts are already executable, but if needed:
 ```bash
 chmod +x git-active-branches git-find-branch-from-commit
 ```

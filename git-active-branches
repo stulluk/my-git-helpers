@@ -36,6 +36,15 @@ _git_active_branches_completion() {
     return 0
 }
 
+# Auto-register completion: works both when sourced and when executed
+# This allows completion to work automatically without manual setup
+if [[ -n "${BASH_VERSION}" ]]; then
+    # Register completion if not already registered
+    if ! complete -p git-active-branches &>/dev/null 2>&1; then
+        complete -F _git_active_branches_completion git-active-branches 2>/dev/null || true
+    fi
+fi
+
 # If script is being sourced (for completion), register completion and return
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     # Script is being sourced
@@ -137,13 +146,16 @@ if [ -s "$TEMP_FILE" ]; then
             
             # Show last 10 commits for this branch with proper formatting
             # Use original_branch for git log to ensure we get the right commits
-            git log "$original_branch" -10 --format="%ct|%ai|%an|%s" 2>/dev/null | while IFS='|' read -r ts date author subject; do
+            git log "$original_branch" -10 --format="%ct|%ai|%H|%an|%s" 2>/dev/null | while IFS='|' read -r ts date sha author subject; do
                 # Truncate author to max 20 characters
                 author_truncated=$(echo "$author" | cut -c1-20)
+                # Get first 8 characters of commit SHA
+                sha_short=$(echo "$sha" | cut -c1-8)
                 
-                # Format: date (cyan) | author (yellow) | subject (default)
-                # Use separate printf for author to ensure proper width
+                # Format: date (cyan) | sha (magenta) | author (yellow) | subject (default)
+                # Use separate printf for proper width
                 printf "${CYAN}%s${NC} | " "$date"
+                printf "${MAGENTA}%s${NC} | " "$sha_short"
                 printf "${YELLOW}%-20s${NC} | " "$author_truncated"
                 printf "%s\n" "$subject"
             done
