@@ -1,0 +1,175 @@
+#!/bin/bash
+
+# git-active-branches: List branches that have received commits within the specified time period
+# By default, shows only branch names. Use --details to see commit history.
+
+# Bash completion function
+_git_active_branches_completion() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    opts="--months --details"
+
+    # If current word starts with --months, complete with common month values
+    if [[ ${cur} == --months=* ]]; then
+        # Suggest common month values (1-24)
+        local months="1 2 3 6 12 18 24"
+        local prefix="${cur#--months=}"
+        COMPREPLY=($(compgen -W "${months}" -- "${prefix}"))
+        return 0
+    fi
+
+    # If previous word was --months (without =), complete with common month values
+    if [[ ${prev} == --months ]]; then
+        local months="1 2 3 6 12 18 24"
+        COMPREPLY=($(compgen -W "${months}" -- "${cur}"))
+        return 0
+    fi
+
+    # Otherwise, complete with options
+    if [[ ${cur} == -* ]]; then
+        COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
+        return 0
+    fi
+
+    return 0
+}
+
+# If script is being sourced (for completion), register completion and return
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    # Script is being sourced
+    complete -F _git_active_branches_completion git-active-branches
+    complete -F _git_active_branches_completion ./git-active-branches
+    # Also register for git alias if it exists
+    complete -F _git_active_branches_completion git active-branches 2>/dev/null || true
+    return 0
+fi
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+NC='\033[0m' # No Color
+
+# Default to 6 months if not specified
+MONTHS=6
+SHOW_DETAILS=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --months=*)
+            MONTHS="${1#*=}"
+            shift
+            ;;
+        --months)
+            MONTHS="$2"
+            shift 2
+            ;;
+        --details)
+            SHOW_DETAILS=true
+            shift
+            ;;
+        *)
+            echo -e "${RED}Error: Unknown option: $1${NC}"
+            echo "Usage: $0 [--months=N] [--details]"
+            echo "  --months=N    : Show branches with commits in the last N months (default: 6)"
+            echo "  --details     : Show detailed commit history for each branch"
+            exit 1
+            ;;
+    esac
+done
+
+# Validate MONTHS is a number
+if ! [[ "$MONTHS" =~ ^[0-9]+$ ]]; then
+    echo -e "${RED}Error: --months must be a positive integer${NC}"
+    exit 1
+fi
+
+# Calculate the date N months ago (Unix timestamp)
+MONTHS_AGO=$(date -d "$MONTHS months ago" +%s 2>/dev/null || date -v-${MONTHS}m +%s 2>/dev/null || echo "")
+
+if [ -z "$MONTHS_AGO" ]; then
+    echo -e "${RED}Error: Failed to calculate date. Please ensure the date command is supported.${NC}"
+    exit 1
+fi
+
+# Create temporary file
+TEMP_FILE=$(mktemp)
+trap "rm -f $TEMP_FILE" EXIT
+
+echo -e "${CYAN}Listing active branches in the last $MONTHS months...${NC}"
+
+# Get all branches (local and remote, normalize remote prefix)
+while IFS= read -r branch; do
+    # Normalize branch name: remove 'remotes/' and remote name, keep only branch name
+    normalized_branch=$(echo "$branch" | sed 's/^remotes\/[^/]*\///' | sed 's/^\*\? *//')
+    
+    # Get the last commit date for this branch (use original branch name for git log)
+    LAST_COMMIT_DATE=$(git log -1 --format="%ct" "$branch" 2>/dev/null)
+    
+    if [ -n "$LAST_COMMIT_DATE" ] && [ "$LAST_COMMIT_DATE" -ge "$MONTHS_AGO" ]; then
+        # Save normalized branch name and last commit date
+        echo "$LAST_COMMIT_DATE|$normalized_branch|$branch" >> "$TEMP_FILE"
+    fi
+done < <(git branch -a | grep -v HEAD | sed 's/^\*\? *//' | sort -u)
+
+# Remove duplicates: if same normalized branch appears multiple times, keep the one with latest commit
+if [ -s "$TEMP_FILE" ]; then
+    TEMP_FILE2=$(mktemp)
+    # Sort by normalized branch name, then by date (newest first), then take first occurrence
+    sort -t'|' -k2,2 -k1,1rn "$TEMP_FILE" | awk -F'|' '!seen[$2]++' > "$TEMP_FILE2"
+    mv "$TEMP_FILE2" "$TEMP_FILE"
+fi
+
+# Sort by date (newest first) and take top 10
+if [ -s "$TEMP_FILE" ]; then
+    if [ "$SHOW_DETAILS" = true ]; then
+        # Show detailed view with commits
+        while IFS='|' read -r timestamp normalized_branch original_branch; do
+            echo ""
+            echo -e "${GREEN}${normalized_branch}${NC}"
+            echo "────────────────────────────────────────────────────────────────"
+            
+            # Show last 10 commits for this branch with proper formatting
+            # Use original_branch for git log to ensure we get the right commits
+            git log "$original_branch" -10 --format="%ct|%ai|%an|%s" 2>/dev/null | while IFS='|' read -r ts date author subject; do
+                # Truncate author to max 20 characters
+                author_truncated=$(echo "$author" | cut -c1-20)
+                
+                # Format: date (cyan) | author (yellow) | subject (default)
+                # Use separate printf for author to ensure proper width
+                printf "${CYAN}%s${NC} | " "$date"
+                printf "${YELLOW}%-20s${NC} | " "$author_truncated"
+                printf "%s\n" "$subject"
+            done
+            
+            echo ""
+        done < <(sort -t'|' -k1,1rn "$TEMP_FILE" | head -10)
+    else
+        # Show simple list view
+        echo ""
+        while IFS='|' read -r timestamp normalized_branch original_branch; do
+            echo -e "${GREEN}${normalized_branch}${NC}"
+        done < <(sort -t'|' -k1,1rn "$TEMP_FILE" | head -10)
+        echo ""
+    fi
+    
+    # Show helpful messages
+    if [ "$MONTHS" -eq 6 ]; then
+        echo -e "${YELLOW}Tip: In order to list branches with commits longer than 6 months, run: --months 12${NC}"
+    fi
+    
+    if [ "$SHOW_DETAILS" = false ]; then
+        echo -e "${YELLOW}Tip: In order to list details, run: --details${NC}"
+    fi
+else
+    echo -e "${YELLOW}No branches found that have received commits in the last $MONTHS months.${NC}"
+    if [ "$MONTHS" -lt 12 ]; then
+        echo -e "${YELLOW}Tip: Try increasing the time period with --months 12${NC}"
+    fi
+fi
