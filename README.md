@@ -57,7 +57,7 @@ git-find-branch-from-commit abc1234567890def
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/YOUR_USERNAME/my-git-helpers.git
+git clone https://github.com/stulluk/my-git-helpers.git
 cd my-git-helpers
 ```
 
